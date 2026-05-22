@@ -50,6 +50,7 @@ QUALITY_MAP = {
 
 YTDLP_PATH = None
 _ytdlp_lock = threading.Lock()
+downloaded_ids = set()
 
 def get_cookies_path():
     for p in [Path(__file__).parent / 'cookies.txt', BASE_DIR / 'cookies.txt']:
@@ -134,12 +135,36 @@ def get_video_info(url):
         if not items:
             return None
         first = items[0]
-        title = first.get('playlist_title') or first.get('title', 'Unknown')
-        count = first.get('playlist_count') or len(items)
+        is_playlist = bool(first.get('playlist_title') or first.get('playlist_count'))
+
+        if is_playlist:
+            title = first.get('playlist_title', 'Unknown')
+            count = int(first.get('playlist_count', 0))
+            playlist_uploader = first.get('playlist_uploader') or first.get('uploader', '') or 'Mix'
+            video_items = items[1:] if len(items) > 1 else []
+        else:
+            title = first.get('title', 'Unknown')
+            count = 1
+            try:
+                r2 = subprocess.run(
+                    [cmd, '--dump-json', '--no-download'] + extra + [url],
+                    capture_output=True, text=True, timeout=120
+                )
+                if r2.returncode == 0:
+                    full = json.loads(r2.stdout.strip())
+                    items[0]['channel'] = full.get('channel') or full.get('uploader') or full.get('channel_name', '') or 'Mix'
+                    items[0]['uploader'] = full.get('uploader', '')
+            except:
+                pass
+            video_items = items
+
         videos = []
-        for item in items:
+        for item in video_items:
             vid_url = item.get('webpage_url') or item.get('url') or f"https://www.youtube.com/watch?v={item.get('id', '')}"
-            channel = item.get('channel') or item.get('uploader') or item.get('channel_name', 'Unknown')
+            if is_playlist:
+                channel = item.get('channel') or item.get('uploader') or item.get('channel_name', '') or playlist_uploader
+            else:
+                channel = item.get('channel') or item.get('uploader') or item.get('channel_name', '') or 'Mix'
             videos.append({
                 'url': vid_url,
                 'title': item.get('title', 'Unknown'),
@@ -160,8 +185,8 @@ def download_single(video_url, title, quality_key, output_dir, platform='youtube
     if not cmd: return False, 'yt-dlp not found'
     clean = sanitize(title)
     wm = sanitize(watermark).strip()
-    ch = sanitize(channel).strip() if channel else ''
-    out_dir = (output_dir / ch) if ch else output_dir
+    ch = sanitize(channel).strip() if channel else 'Mix'
+    out_dir = output_dir / ch
     out_dir.mkdir(parents=True, exist_ok=True)
     fname = f"{index:03d}-{clean}" + (f" By @{wm}" if wm else "")
     out_path = out_dir / f'{fname}.mp4'
@@ -171,14 +196,17 @@ def download_single(video_url, title, quality_key, output_dir, platform='youtube
     out = str(out_dir / f'{fname}.%(ext)s')
     cookies = get_cookies_path()
     cookie_args = ['--cookies', cookies] if cookies else []
+    archive_path = Path(__file__).parent / 'download_archive.txt'
     if quality_key == 'audio':
         args = [cmd, '-f', qf, '-o', out, '--no-playlist', '--ignore-errors',
                 '--extract-audio', '--audio-format', 'mp3', '--audio-quality', '0',
-                '--retries', '10', '--fragment-retries', '10'] + cookie_args
+                '--retries', '10', '--fragment-retries', '10',
+                '--download-archive', str(archive_path)] + cookie_args
     else:
         args = [cmd, '-f', qf, '-o', out, '--no-playlist', '--ignore-errors',
                 '--merge-output-format', 'mp4', '--concurrent-fragments', '8',
-                '--retries', '10', '--fragment-retries', '10'] + cookie_args
+                '--retries', '10', '--fragment-retries', '10',
+                '--download-archive', str(archive_path)] + cookie_args
     if platform == 'tiktok':
         args.extend(['--extractor-args', 'tiktok:api_host=web'])
     args.append(video_url)
@@ -209,10 +237,21 @@ def process_single_url(url, quality_key, out_dir, platform, watermark, workers, 
     yield add("─" * 45)
     success_count = 0
     fail_count = 0
+    new_videos = []
+    for i, v in enumerate(videos):
+        vid_id = v.get('id', '')
+        if vid_id and vid_id in downloaded_ids:
+            yield add(f"  ⏭ Skipped (already done): {v['title']}")
+            continue
+        new_videos.append((i + 1, v))
+    total_new = len(new_videos)
+    if total_new == 0:
+        yield add("  ✅ All already downloaded!")
+        return success_count, fail_count
     with ThreadPoolExecutor(max_workers=int(workers)) as ex:
         futures = {
-            ex.submit(download_single, v['url'], v['title'], quality_key, out_dir, platform.lower(), i+1, watermark, v.get('channel', '')): v
-            for i, v in enumerate(videos)
+            ex.submit(download_single, v['url'], v['title'], quality_key, out_dir, platform.lower(), idx, watermark, v.get('channel', '')): (idx, v)
+            for idx, v in new_videos
         }
         done_count = 0
         for fut in as_completed(futures):
@@ -220,9 +259,13 @@ def process_single_url(url, quality_key, out_dir, platform, watermark, workers, 
             done_count += 1
             if ok:
                 success_count += 1
+                idx, v = futures[fut]
+                vid = v.get('id', '')
+                if vid:
+                    downloaded_ids.add(vid)
             else:
                 fail_count += 1
-            yield add(f"  {'✅' if ok else '❌'} [{done_count}/{total}] {msg}")
+            yield add(f"  {'✅' if ok else '❌'} [{done_count}/{total_new}] {msg}")
     return success_count, fail_count
 
 def download_task(urls, quality, workers, platform, folder_name, watermark, progress=gr.Progress()):
@@ -304,10 +347,10 @@ def get_library():
     if not DRIVE_DIR.exists(): return items
     for cat_dir in sorted(DRIVE_DIR.iterdir()):
         if cat_dir.is_dir():
-            videos = sorted(cat_dir.glob('*.mp4')) + sorted(cat_dir.glob('*.webm')) + sorted(cat_dir.glob('*.mkv')) + sorted(cat_dir.glob('*.mp3'))
+            videos = sorted(cat_dir.rglob('*.mp4')) + sorted(cat_dir.rglob('*.webm')) + sorted(cat_dir.rglob('*.mkv')) + sorted(cat_dir.rglob('*.mp3'))
             if videos:
                 items.append({'category': cat_dir.name, 'count': len(videos),
-                    'videos': [{'name': v.name, 'size': v.stat().st_size, 'path': str(v)} for v in videos[:20]]})
+                    'videos': [{'name': v.relative_to(cat_dir).as_posix(), 'size': v.stat().st_size, 'path': str(v)} for v in videos[:20]]})
     return items
 
 def list_downloads():
