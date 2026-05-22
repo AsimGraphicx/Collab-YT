@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Collab-YT — YouTube &amp; TikTok Downloader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#f0f2f5;
+  --glass:rgba(255,255,255,0.55);--glass-border:rgba(255,255,255,0.75);
+  --glass-blur:blur(22px) saturate(1.6);
+  --shadow:0 8px 32px rgba(99,102,241,.10),0 2px 8px rgba(0,0,0,.06);
+  --text:#1a1a2e;--text2:#5a5a7a;--text3:#9090aa;
+  --input-bg:rgba(255,255,255,0.62);--input-border:rgba(200,200,220,0.5);
+  --acc1:#e63946;--acc2:#f77f00;
+  --acc-grad:linear-gradient(135deg,#e63946,#f77f00);
+  --radius:16px;--radius-sm:10px;
+  --green:#059669;--red:#dc2626;
+}
+body.dark{
+  --bg:#0d0d18;
+  --glass:rgba(18,18,30,0.65);--glass-border:rgba(255,255,255,0.08);
+  --shadow:0 8px 32px rgba(0,0,0,.35),0 2px 8px rgba(0,0,0,.25);
+  --text:#f0f0f8;--text2:#a0a0c0;--text3:#606080;
+  --input-bg:rgba(20,20,35,0.70);--input-border:rgba(255,255,255,0.10);
+  --green:#34d399;--red:#f87171;
+}
+body{
+  font-family:'Inter',system-ui,sans-serif;background:var(--bg);
+  color:var(--text);min-height:100vh;transition:background .3s,color .3s;
+}
+/* animated bg */
+.bg-layer{position:fixed;top:0;left:0;width:100%;height:100%;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(ellipse at 15% 20%,rgba(147,197,253,.40) 0%,transparent 55%),
+    radial-gradient(ellipse at 85% 10%,rgba(196,181,253,.35) 0%,transparent 50%),
+    radial-gradient(ellipse at 60% 80%,rgba(167,243,208,.28) 0%,transparent 50%),
+    radial-gradient(ellipse at 10% 85%,rgba(253,186,116,.22) 0%,transparent 45%),
+    linear-gradient(135deg,#e0f2fe 0%,#f0fdf4 40%,#faf5ff 70%,#fff7ed 100%);
+  transition:background .4s;
+}
+body.dark .bg-layer{
+  background:
+    radial-gradient(ellipse at 20% 20%,rgba(88,80,236,.22) 0%,transparent 55%),
+    radial-gradient(ellipse at 80% 10%,rgba(168,85,247,.15) 0%,transparent 50%),
+    radial-gradient(ellipse at 60% 85%,rgba(16,185,129,.12) 0%,transparent 50%),
+    linear-gradient(135deg,#0d0d18 0%,#0f0f1e 100%);
+}
+/* layout */
+.container{max-width:860px;margin:0 auto;padding:20px 16px 60px}
+/* glass card */
+.card{
+  background:var(--glass);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:24px;margin-bottom:16px;
+  transition:box-shadow .25s,background .25s;
+}
+.card:hover{box-shadow:0 12px 40px rgba(99,102,241,.14),0 3px 10px rgba(0,0,0,.08)}
+/* header */
+.header{text-align:center;padding:32px 0 8px}
+.logo{font-size:36px;font-weight:700;background:var(--acc-grad);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;letter-spacing:-.02em}
+.subtitle{color:var(--text2);font-size:14px;margin-top:4px}
+/* theme toggle */
+.theme-btn{
+  position:fixed;top:16px;right:16px;z-index:999;padding:8px 16px;border-radius:24px;
+  border:1px solid var(--glass-border);background:var(--glass);backdrop-filter:blur(20px);
+  color:var(--text);font-size:13px;font-weight:500;cursor:pointer;
+  box-shadow:0 4px 16px rgba(0,0,0,.10);transition:all .25s;font-family:inherit;
+}
+.theme-btn:hover{transform:translateY(-2px) scale(1.04)}
+/* tabs */
+.tabs{display:flex;gap:4px;background:var(--glass);backdrop-filter:blur(16px);
+  border:1px solid var(--glass-border);border-radius:14px;padding:5px;margin-bottom:16px}
+.tab{flex:1;text-align:center;padding:8px 16px;border-radius:10px;border:none;
+  background:transparent;color:var(--text3);font-weight:500;font-size:13.5px;
+  cursor:pointer;transition:all .22s;font-family:inherit}
+.tab.active{background:var(--glass);color:var(--text);
+  box-shadow:0 2px 10px rgba(0,0,0,.10),0 0 0 .5px var(--glass-border)}
+/* form elements */
+label{display:block;font-size:12px;font-weight:600;color:var(--text2);
+  margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+input[type=text],select{
+  width:100%;padding:10px 14px;background:var(--input-bg);border:1px solid var(--input-border);
+  border-radius:var(--radius-sm);color:var(--text);font-size:14px;font-family:inherit;
+  transition:border-color .2s,box-shadow .2s;outline:none;
+}
+input:focus,select:focus{border-color:rgba(230,57,70,.55);
+  box-shadow:0 0 0 3px rgba(230,57,70,.12)}
+.row{display:flex;gap:12px;margin-bottom:14px}
+.row>*{flex:1}
+/* buttons */
+.btn{padding:10px 20px;border:none;border-radius:12px;font-weight:600;font-size:14px;
+  cursor:pointer;transition:all .18s;font-family:inherit;display:inline-flex;
+  align-items:center;justify-content:center;gap:6px}
+.btn-primary{background:var(--acc-grad);color:#fff;
+  box-shadow:0 4px 18px rgba(230,57,70,.30),0 1px 4px rgba(0,0,0,.10)}
+.btn-primary:hover{transform:translateY(-2px) scale(1.01);
+  box-shadow:0 8px 28px rgba(230,57,70,.38)}
+.btn-primary:active{transform:translateY(0) scale(.98)}
+.btn-secondary{background:var(--glass);color:var(--text);border:1px solid var(--glass-border);
+  box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.btn-secondary:hover{transform:translateY(-1px)}
+.btn-danger{background:rgba(239,68,68,.12);color:var(--red);border:1px solid rgba(239,68,68,.35)}
+.btn-danger:hover{background:rgba(239,68,68,.22)}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important}
+.btn-row{display:flex;gap:10px;margin-top:16px}
+/* drive badge */
+.drive-badge{display:inline-block;background:rgba(52,211,153,.12);color:var(--green);
+  border:1px solid rgba(52,211,153,.30);padding:5px 12px;border-radius:8px;
+  font-size:12px;font-family:'SF Mono','Cascadia Code',monospace;word-break:break-all}
+/* preview */
+.preview-area{margin-top:16px}
+.preview-area .thumb{width:100%;max-width:320px;border-radius:12px;margin-bottom:12px}
+.video-list{max-height:200px;overflow-y:auto;font-size:13px;color:var(--text2);
+  background:var(--input-bg);border-radius:var(--radius-sm);padding:10px}
+.video-list div{padding:4px 0;border-bottom:1px solid var(--input-border)}
+/* progress */
+.progress-card{display:none}
+.progress-card.active{display:block}
+.progress-bar-wrap{background:rgba(0,0,0,.08);border-radius:99px;height:8px;overflow:hidden;margin:12px 0}
+body.dark .progress-bar-wrap{background:rgba(255,255,255,.08)}
+.progress-bar-fill{height:100%;background:var(--acc-grad);border-radius:99px;width:0%;
+  transition:width .4s ease;position:relative}
+.progress-bar-fill::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);
+  animation:shimmer 1.5s infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.progress-status{font-size:13px;color:var(--text2)}
+.progress-pct{font-size:28px;font-weight:700;background:var(--acc-grad);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+/* library */
+.file-item{display:flex;justify-content:space-between;padding:8px 0;
+  border-bottom:1px solid var(--input-border);font-size:13px}
+.file-item .name{color:var(--text);font-weight:500}
+.file-item .meta{color:var(--text3);font-size:12px}
+.empty-state{text-align:center;padding:40px;color:var(--text3);font-size:14px}
+/* toast */
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:12px;
+  background:var(--glass);backdrop-filter:blur(20px);border:1px solid var(--glass-border);
+  box-shadow:var(--shadow);font-size:13px;color:var(--text);z-index:9999;
+  transform:translateY(100px);opacity:0;transition:all .3s;max-width:360px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.error{border-color:rgba(239,68,68,.4);color:var(--red)}
+.toast.success{border-color:rgba(52,211,153,.4);color:var(--green)}
+/* scrollbar */
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(99,102,241,.25);border-radius:10px}
+/* tab panels */
+.panel{display:none}.panel.active{display:block}
+/* mobile */
+@media(max-width:640px){
+  .container{padding:12px 8px 40px}
+  .row{flex-direction:column;gap:8px}
+  .card{padding:16px}
+  .logo{font-size:28px}
+  .theme-btn{top:10px;right:10px;padding:6px 12px;font-size:12px}
+  .btn-row{flex-direction:column}
+}
+</style>
+</head>
+<body>
+<div class="bg-layer"></div>
+<button class="theme-btn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙 Dark</button>
+
+<div class="container">
+  <div class="header">
+    <div class="logo">▶ Collab-YT</div>
+    <div class="subtitle">YouTube + TikTok Downloader — Max Quality · Multi-Thread · Direct Drive Save</div>
+  </div>
+
+  <!-- Drive Folder -->
+  <div class="card" style="padding:14px 20px">
+    <div class="row" style="align-items:center;margin:0">
+      <div style="flex:2">
+        <label>📁 Save Folder</label>
+        <input type="text" id="folderInput" value="Collab-YT-Downloads" placeholder="Folder name...">
+      </div>
+      <div style="flex:1;padding-top:18px">
+        <div class="drive-badge" id="driveBadge">📂 Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="download" onclick="switchTab('download')">⬇ Download</button>
+    <button class="tab" data-tab="library" onclick="switchTab('library')">📂 Library</button>
+    <button class="tab" data-tab="help" onclick="switchTab('help')">❓ Help</button>
+  </div>
+
+  <!-- Download Panel -->
+  <div class="panel active" id="panel-download">
+    <div class="card">
+      <label>🔗 Video / Playlist URL</label>
+      <input type="text" id="urlInput" placeholder="https://youtube.com/watch?v=... or playlist URL">
+
+      <div class="row" style="margin-top:14px">
+        <div>
+          <label>📺 Quality</label>
+          <select id="qualitySelect">
+            <option value="max">Max (Best Available)</option>
+            <option value="4k">4K (2160p)</option>
+            <option value="1080p">Full HD (1080p)</option>
+            <option value="720p">HD (720p)</option>
+            <option value="480p">SD (480p)</option>
+            <option value="audio">Audio Only (MP3)</option>
+          </select>
+        </div>
+        <div>
+          <label>🌐 Platform</label>
+          <select id="platformSelect">
+            <option value="YouTube">YouTube</option>
+            <option value="TikTok">TikTok</option>
+          </select>
+        </div>
+        <div>
+          <label>⚡ Threads</label>
+          <select id="threadsSelect">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="4" selected>4</option>
+            <option value="8">8</option>
+            <option value="16">16</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="previewBtn" onclick="preview()">🔍 Preview</button>
+        <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()" style="flex:2">⬇ Download</button>
+        <button class="btn btn-danger" id="stopBtn" onclick="stopDownload()" style="display:none">🛑 Stop</button>
+      </div>
+    </div>
+
+    <!-- Preview Area -->
+    <div class="card preview-area" id="previewCard" style="display:none">
+      <h3 style="font-size:15px;margin-bottom:10px" id="previewTitle"></h3>
+      <img class="thumb" id="previewThumb" style="display:none">
+      <div class="video-list" id="videoList"></div>
+    </div>
+
+    <!-- Progress -->
+    <div class="card progress-card" id="progressCard">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text2)" id="progressLabel">Downloading...</div>
+          <div class="progress-status" id="progressMsg">Starting…</div>
+        </div>
+        <div class="progress-pct" id="progressPct">0%</div>
+      </div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressBar"></div></div>
+      <div style="display:flex;gap:16px;font-size:12px;color:var(--text3)">
+        <span>✅ <span id="statOk">0</span></span>
+        <span>❌ <span id="statFail">0</span></span>
+        <span>📦 <span id="statTotal">0</span> total</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Library Panel -->
+  <div class="panel" id="panel-library">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h3 style="font-size:15px">Downloaded Files</h3>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary" onclick="loadLibrary()" style="padding:6px 14px;font-size:12px">🔄 Refresh</button>
+          <button class="btn btn-danger" onclick="deleteAll()" style="padding:6px 14px;font-size:12px">🗑️ Delete All</button>
+        </div>
+      </div>
+      <div id="libraryPath" class="drive-badge" style="margin-bottom:14px"></div>
+      <div id="libraryList"><div class="empty-state">Click Refresh to load files</div></div>
+    </div>
+  </div>
+
+  <!-- Help Panel -->
+  <div class="panel" id="panel-help">
+    <div class="card">
+      <h3 style="font-size:16px;margin-bottom:12px">🚀 Colab Setup</h3>
+      <div style="font-size:13px;color:var(--text2);line-height:1.8">
+        <b>1.</b> Mount Google Drive:<br>
+        <code style="background:var(--input-bg);padding:2px 8px;border-radius:4px">from google.colab import drive; drive.mount("/content/drive")</code><br><br>
+        <b>2.</b> Clone &amp; Run:<br>
+        <code style="background:var(--input-bg);padding:2px 8px;border-radius:4px">!git clone https://github.com/AsimGraphicx/Collab-YT.git && cd Collab-YT && python app.py</code><br><br>
+        <b>3.</b> Open the public URL shown in the output
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="font-size:16px;margin-bottom:12px">✨ Features</h3>
+      <div style="font-size:13px;color:var(--text2);line-height:2">
+        📺 Up to 4K quality &nbsp;·&nbsp; ⚡ Multi-threaded (1-16 workers)<br>
+        🎵 Audio extraction (MP3) &nbsp;·&nbsp; 📋 Full playlist support<br>
+        💾 Direct Google Drive save &nbsp;·&nbsp; 🌙 Dark/Light mode<br>
+        📱 Mobile responsive &nbsp;·&nbsp; 🛑 Stop anytime
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Theme ──
+function initTheme(){
+  if(localStorage.getItem('cyt-theme')==='dark')document.body.classList.add('dark');
+  updateThemeBtn();
+}
+function toggleTheme(){
+  document.body.classList.toggle('dark');
+  localStorage.setItem('cyt-theme',document.body.classList.contains('dark')?'dark':'light');
+  updateThemeBtn();
+}
+function updateThemeBtn(){
+  document.querySelector('.theme-btn').textContent=document.body.classList.contains('dark')?'☀️ Light':'🌙 Dark';
+}
+initTheme();
+
+// ── Tabs ──
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active',p.id==='panel-'+name));
+  if(name==='library')loadLibrary();
+}
+
+// ── Toast ──
+function showToast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.className='toast '+type;
+  setTimeout(()=>t.classList.add('show'),10);
+  setTimeout(()=>t.classList.remove('show'),4000);
+}
+
+// ── Drive path ──
+async function updateDrivePath(){
+  try{
+    const r=await fetch('/api/drive-path',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({folder:document.getElementById('folderInput').value})});
+    const d=await r.json();
+    document.getElementById('driveBadge').textContent='📂 '+d.path;
+  }catch(e){}
+}
+document.getElementById('folderInput').addEventListener('input',updateDrivePath);
+updateDrivePath();
+
+// ── Preview ──
+async function preview(){
+  const url=document.getElementById('urlInput').value.trim();
+  if(!url){showToast('Enter a URL first','error');return}
+  const btn=document.getElementById('previewBtn');
+  btn.disabled=true;btn.textContent='⏳ Loading...';
+  try{
+    const r=await fetch('/api/info',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url})});
+    const d=await r.json();
+    if(d.error){showToast(d.error,'error');return}
+    document.getElementById('previewCard').style.display='block';
+    document.getElementById('previewTitle').textContent=`📺 ${d.title} — ${d.count} video(s)`;
+    const thumb=document.getElementById('previewThumb');
+    if(d.thumbnail){thumb.src=d.thumbnail;thumb.style.display='block'}else{thumb.style.display='none'}
+    const list=document.getElementById('videoList');
+    list.innerHTML=d.videos.map(v=>{
+      const p=v.split(' | ');
+      return `<div>${p[1]||p[0]} · <span style="color:var(--text3)">${p[2]||''}</span></div>`;
+    }).join('');
+  }catch(e){showToast('Failed to fetch info','error')}
+  finally{btn.disabled=false;btn.textContent='🔍 Preview'}
+}
+
+// ── Download ──
+let currentTaskId=null;
+async function startDownload(){
+  const url=document.getElementById('urlInput').value.trim();
+  if(!url){showToast('Enter a URL first','error');return}
+  const dlBtn=document.getElementById('downloadBtn');
+  const stopBtn=document.getElementById('stopBtn');
+  dlBtn.disabled=true;stopBtn.style.display='inline-flex';
+  const pc=document.getElementById('progressCard');
+  pc.classList.add('active');
+  document.getElementById('progressBar').style.width='0%';
+  document.getElementById('progressPct').textContent='0%';
+  document.getElementById('progressMsg').textContent='Starting…';
+  document.getElementById('statOk').textContent='0';
+  document.getElementById('statFail').textContent='0';
+  document.getElementById('statTotal').textContent='0';
+
+  try{
+    const r=await fetch('/api/download',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url,quality:document.getElementById('qualitySelect').value,
+        platform:document.getElementById('platformSelect').value,
+        workers:document.getElementById('threadsSelect').value,
+        folder:document.getElementById('folderInput').value})});
+    const d=await r.json();
+    if(d.error){showToast(d.error,'error');dlBtn.disabled=false;stopBtn.style.display='none';return}
+    currentTaskId=d.task_id;
+    listenProgress(d.task_id);
+  }catch(e){showToast('Request failed','error');dlBtn.disabled=false;stopBtn.style.display='none'}
+}
+
+function listenProgress(taskId){
+  const es=new EventSource('/api/progress/'+taskId);
+  es.onmessage=function(e){
+    const d=JSON.parse(e.data);
+    if(d.error){es.close();showToast(d.error,'error');resetButtons();return}
+    const pct=Math.round((d.progress||0)*100);
+    document.getElementById('progressBar').style.width=pct+'%';
+    document.getElementById('progressPct').textContent=pct+'%';
+    document.getElementById('progressMsg').textContent=d.message||'';
+    document.getElementById('progressLabel').textContent=
+      d.status==='fetching'?'🔍 Fetching info...':
+      d.status==='setup'?'⚙️ Setting up...':
+      d.status==='downloading'?'⬇ Downloading...':
+      d.status==='complete'?'🎉 Complete!':
+      d.status==='stopped'?'🛑 Stopped':
+      d.status==='error'?'❌ Error':'⏳ Working...';
+    document.getElementById('statOk').textContent=d.success||0;
+    document.getElementById('statFail').textContent=d.failed||0;
+    document.getElementById('statTotal').textContent=d.total||0;
+    if(['complete','error','stopped'].includes(d.status)){
+      es.close();resetButtons();
+      if(d.status==='complete')showToast('Download complete! ✅','success');
+      else if(d.status==='error')showToast(d.message,'error');
+    }
+  };
+  es.onerror=function(){es.close();resetButtons()};
+}
+
+function resetButtons(){
+  document.getElementById('downloadBtn').disabled=false;
+  document.getElementById('stopBtn').style.display='none';
+}
+
+async function stopDownload(){
+  if(!currentTaskId)return;
+  try{await fetch('/api/stop/'+currentTaskId,{method:'POST'})}catch(e){}
+  showToast('Stop requested','');
+}
+
+// ── Library ──
+async function loadLibrary(){
+  try{
+    const r=await fetch('/api/downloads',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({folder:document.getElementById('folderInput').value})});
+    const d=await r.json();
+    document.getElementById('libraryPath').textContent='📂 '+d.path;
+    const list=document.getElementById('libraryList');
+    if(!d.files.length){list.innerHTML='<div class="empty-state">📂 No downloads yet</div>';return}
+    list.innerHTML=d.files.map(f=>
+      `<div class="file-item"><span class="name">${f.folder}/${f.name}</span><span class="meta">${f.size}</span></div>`
+    ).join('');
+  }catch(e){showToast('Failed to load','error')}
+}
+
+// ── Delete ──
+async function deleteAll(){
+  if(!confirm('Delete ALL downloaded files?'))return;
+  try{
+    const r=await fetch('/api/delete',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({folder:document.getElementById('folderInput').value})});
+    const d=await r.json();
+    showToast(d.message,'success');loadLibrary();
+  }catch(e){showToast('Failed','error')}
+}
+</script>
+</body>
+</html>
