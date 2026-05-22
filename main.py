@@ -106,6 +106,20 @@ def install_ffmpeg():
 def sanitize(name):
     return re.sub(r'[\\/*?:"<>|]', '', name)[:100]
 
+def extract_channel_from_url(url):
+    m = re.search(r'(?:youtube\.com|youtu\.be)/@([^/?]+)', url)
+    if m: return m.group(1)
+    m = re.search(r'youtube\.com/channel/([^/?]+)', url)
+    if m: return m.group(1)
+    m = re.search(r'youtube\.com/c/([^/?]+)', url)
+    if m: return m.group(1)
+    m = re.search(r'tiktok\.com/@([^/?]+)', url)
+    if m: return m.group(1)
+    m = re.search(r'instagram\.com/([^/?]+)', url)
+    if m and m.group(1) not in ('p', 'reel', 'tv', 'stories', 'explore', 'accounts'):
+        return m.group(1)
+    return ''
+
 def format_size(b):
     if b > 1e9: return f'{b/1e9:.2f} GB'
     if b > 1e6: return f'{b/1e6:.2f} MB'
@@ -117,6 +131,7 @@ def get_video_info(url):
     if not cmd: return None
     cookies = get_cookies_path()
     extra = ['--cookies', cookies] if cookies else []
+    url_channel = extract_channel_from_url(url)
     try:
         r = subprocess.run(
             [cmd, '--flat-playlist', '--dump-json', '--no-download'] + extra + [url],
@@ -140,7 +155,7 @@ def get_video_info(url):
         if is_playlist:
             title = first.get('playlist_title', 'Unknown')
             count = int(first.get('playlist_count', 0))
-            playlist_uploader = first.get('playlist_uploader') or first.get('uploader', '') or 'Mix'
+            playlist_channel = first.get('playlist_uploader') or first.get('uploader', '') or url_channel or 'Mix'
             video_items = items[1:] if len(items) > 1 else []
         else:
             title = first.get('title', 'Unknown')
@@ -152,19 +167,20 @@ def get_video_info(url):
                 )
                 if r2.returncode == 0:
                     full = json.loads(r2.stdout.strip())
-                    items[0]['channel'] = full.get('channel') or full.get('uploader') or full.get('channel_name', '') or 'Mix'
-                    items[0]['uploader'] = full.get('uploader', '')
+                    items[0] = full
             except:
                 pass
+            url_channel = url_channel or 'Mix'
             video_items = items
 
         videos = []
         for item in video_items:
             vid_url = item.get('webpage_url') or item.get('url') or f"https://www.youtube.com/watch?v={item.get('id', '')}"
+            ch = item.get('channel') or item.get('uploader') or item.get('channel_name', '') or url_channel
             if is_playlist:
-                channel = item.get('channel') or item.get('uploader') or item.get('channel_name', '') or playlist_uploader
-            else:
-                channel = item.get('channel') or item.get('uploader') or item.get('channel_name', '') or 'Mix'
+                ch = ch or playlist_channel
+            if not ch:
+                ch = 'Mix'
             videos.append({
                 'url': vid_url,
                 'title': item.get('title', 'Unknown'),
@@ -172,7 +188,7 @@ def get_video_info(url):
                 'duration': item.get('duration_string', 'N/A'),
                 'views': item.get('view_count', 0),
                 'thumbnail': item.get('thumbnail', ''),
-                'channel': channel,
+                'channel': ch,
                 'uploader': item.get('uploader', ''),
             })
         return {'title': title, 'count': str(count), 'videos': videos}
