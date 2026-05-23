@@ -4,7 +4,7 @@ Gradio UI | Cookies | Multi-Thread | Direct Drive Save
 Usage: python main.py
 """
 
-import os, sys, re, json, shutil, subprocess, urllib.request, time, threading
+import os, sys, re, json, shutil, subprocess, urllib.request, time, threading, random
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,6 +22,10 @@ else:
 
 BASE_DIR = Path('/content/Collab-YT') if IN_COLAB else Path.cwd()
 os.makedirs(DRIVE_DIR, exist_ok=True)
+
+# Ensure BASE_DIR is in PATH so yt-dlp can find ffmpeg and deno
+if str(BASE_DIR) not in os.environ.get('PATH', ''):
+    os.environ['PATH'] = f"{BASE_DIR}:{os.environ.get('PATH', '')}"
 
 print('📦 Installing deps...')
 try:
@@ -51,6 +55,14 @@ QUALITY_MAP = {
 YTDLP_PATH = None
 _ytdlp_lock = threading.Lock()
 downloaded_ids = set()
+
+# Global semaphore: caps the number of truly concurrent yt-dlp processes to
+# avoid YouTube 429 rate-limits regardless of how many UI threads are chosen.
+_YTDLP_SEM = threading.Semaphore(4)
+
+# Event used to signal a 429 cool-down: all worker threads will pause when set.
+_RATE_LIMIT_EVENT = threading.Event()
+_RATE_LIMIT_EVENT.set()  # start in "green" (not throttled) state
 
 def get_cookies_path():
     for p in [Path(__file__).parent / 'cookies.txt', BASE_DIR / 'cookies.txt']:
@@ -102,6 +114,20 @@ def install_ffmpeg():
     archive.unlink()
     os.chmod(BASE_DIR / 'ffmpeg', 0o755)
     os.chmod(BASE_DIR / 'ffprobe', 0o755)
+
+def check_deno():
+    return bool(shutil.which('deno') or (BASE_DIR / 'deno').exists())
+
+def install_deno():
+    url = 'https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip'
+    archive = BASE_DIR / 'deno.zip'
+    print('⬇ Downloading Deno...')
+    urllib.request.urlretrieve(url, str(archive))
+    import zipfile
+    with zipfile.ZipFile(archive, 'r') as zip_ref:
+        zip_ref.extract('deno', path=str(BASE_DIR))
+    archive.unlink()
+    os.chmod(BASE_DIR / 'deno', 0o755)
 
 def sanitize(name):
     return re.sub(r'[\\/*?:"<>|]', '', name)[:100]
@@ -213,29 +239,65 @@ def download_single(video_url, title, quality_key, output_dir, platform='youtube
     cookies = get_cookies_path()
     cookie_args = ['--cookies', cookies] if cookies else []
     archive_path = Path(__file__).parent / 'download_archive.txt'
+
+    # Rate-limit friendly yt-dlp flags:
+    #   --sleep-requests   → pause between each internal HTTP request
+    #   --min/max-sleep-interval → random jitter between playlist items
+    #   --concurrent-fragments 3 → fewer parallel fragment downloads (was 8)
+    sleep_args = [
+        '--sleep-requests', '1',
+        '--min-sleep-interval', '2',
+        '--max-sleep-interval', '5',
+    ]
     if quality_key == 'audio':
         args = [cmd, '-f', qf, '-o', out, '--no-playlist', '--ignore-errors',
                 '--extract-audio', '--audio-format', 'mp3', '--audio-quality', '0',
                 '--retries', '10', '--fragment-retries', '10',
-                '--download-archive', str(archive_path)] + cookie_args
+                '--download-archive', str(archive_path)] + sleep_args + cookie_args
     else:
         args = [cmd, '-f', qf, '-o', out, '--no-playlist', '--ignore-errors',
-                '--merge-output-format', 'mp4', '--concurrent-fragments', '8',
+                '--merge-output-format', 'mp4', '--concurrent-fragments', '3',
                 '--retries', '10', '--fragment-retries', '10',
-                '--download-archive', str(archive_path)] + cookie_args
+                '--download-archive', str(archive_path)] + sleep_args + cookie_args
     if platform == 'tiktok':
         args.extend(['--extractor-args', 'tiktok:api_host=web'])
     args.append(video_url)
-    try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=3600)
+
+    max_retries = 4
+    for attempt in range(max_retries):
+        # Wait if a global rate-limit cool-down is in progress
+        _RATE_LIMIT_EVENT.wait(timeout=300)
+
+        # Semaphore: only 4 yt-dlp processes run truly concurrently
+        with _YTDLP_SEM:
+            try:
+                proc = subprocess.run(args, capture_output=True, text=True, timeout=3600)
+            except subprocess.TimeoutExpired:
+                return False, f'Timeout: {clean}'
+            except Exception as e:
+                return False, f'Error: {e}'
+
         if proc.returncode == 0:
             return True, f'Done: {clean}'
-        err = proc.stderr[:300] if proc.stderr else proc.stdout[:300]
+
+        combined = (proc.stderr or '') + (proc.stdout or '')
+        is_429 = '429' in combined or 'Too Many Requests' in combined
+
+        if is_429:
+            # Pause ALL threads for an escalating back-off period
+            _RATE_LIMIT_EVENT.clear()  # signal other threads to wait
+            # Exponential back-off: 60s, 120s, 240s, 480s (+random jitter)
+            wait = min(60 * (2 ** attempt), 480) + random.uniform(10, 40)
+            print(f'⏳ 429 detected for "{clean}" — cooling down {wait:.0f}s (attempt {attempt+1}/{max_retries})')
+            time.sleep(wait)
+            _RATE_LIMIT_EVENT.set()  # release other threads
+            if attempt < max_retries - 1:
+                continue  # retry this video
+
+        err = combined[:400].strip()
         return False, f'Failed: {err}'
-    except subprocess.TimeoutExpired:
-        return False, f'Timeout: {clean}'
-    except Exception as e:
-        return False, f'Error: {e}'
+
+    return False, f'Failed after {max_retries} retries (429 rate-limit): {clean}'
 
 def process_single_url(url, quality_key, out_dir, platform, watermark, workers, add, track_progress, progress):
     yield add(f"\n{'═'*50}")
@@ -265,10 +327,18 @@ def process_single_url(url, quality_key, out_dir, platform, watermark, workers, 
         yield add("  ✅ All already downloaded!")
         return success_count, fail_count
     with ThreadPoolExecutor(max_workers=int(workers)) as ex:
-        futures = {
-            ex.submit(download_single, v['url'], v['title'], quality_key, out_dir, platform.lower(), idx, watermark, v.get('channel', '')): (idx, v)
-            for idx, v in new_videos
-        }
+        futures = {}
+        for i, (idx, v) in enumerate(new_videos):
+            # Stagger thread submission: small random delay prevents burst spike
+            # at the very start when all threads fire simultaneously.
+            if i > 0:
+                time.sleep(random.uniform(0.5, 2.0))
+            fut = ex.submit(
+                download_single,
+                v['url'], v['title'], quality_key, out_dir,
+                platform.lower(), idx, watermark, v.get('channel', '')
+            )
+            futures[fut] = (idx, v)
         done_count = 0
         for fut in as_completed(futures):
             ok, msg = fut.result()
@@ -322,6 +392,18 @@ def download_task(urls, quality, workers, platform, folder_name, watermark, prog
         except Exception as e:
             yield add(f"❌ Failed: {e}")
             return
+
+    if track_progress: progress(0.04, desc='🔧 Checking deno...')
+    yield add("🔧 Checking deno runtime...")
+    if not check_deno():
+        yield add("⬇ Installing deno...")
+        try:
+            install_deno()
+            yield add("✅ deno installed!")
+        except Exception as e:
+            yield add(f"❌ Failed: {e}")
+            return
+
     yield add("✅ Tools ready!")
     sub_dir = platform.lower()
     if IN_COLAB:
@@ -538,7 +620,7 @@ with gr.Blocks(title='Collab-YT') as demo:
                         ['Max (Best)', '4K', '1080p', '720p', '480p', 'Audio Only'],
                         value='Max (Best)', label='📺 Quality', scale=2
                     )
-                    workers_slider = gr.Slider(1, 16, value=4, step=1, label='⚡ Threads', scale=1)
+                    workers_slider = gr.Slider(1, 16, value=3, step=1, label='⚡ Threads (≤4 rec. for YT)', scale=1)
                 with gr.Row():
                     platform_dd = gr.Radio(
                         ['YouTube', 'TikTok', 'Instagram'], value='YouTube', label='🌐 Platform'
