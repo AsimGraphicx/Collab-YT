@@ -29,13 +29,15 @@ if str(BASE_DIR) not in os.environ.get('PATH', ''):
 
 print('📦 Installing deps...')
 try:
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'gradio', 'yt-dlp'],
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--upgrade',
+                    'gradio', 'yt-dlp[curl-cffi]', 'curl_cffi>=0.10,<0.15'],
                    capture_output=True, check=False)
 except Exception:
     pass
 if not IN_COLAB:
     try:
-        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--break-system-packages', 'gradio', 'yt-dlp'],
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', '--break-system-packages',
+                        'gradio', 'yt-dlp[curl-cffi]', 'curl_cffi>=0.10,<0.15'],
                        capture_output=True, check=False)
     except Exception:
         pass
@@ -74,17 +76,24 @@ def get_ytdlp():
     if YTDLP_PATH: return YTDLP_PATH
     with _ytdlp_lock:
         if YTDLP_PATH: return YTDLP_PATH
-        for cmd in ['yt-dlp', shutil.which('yt-dlp') or '', str(BASE_DIR / 'yt-dlp')]:
-            if not cmd: continue
-            if '/' in cmd:
-                if os.path.exists(cmd):
-                    YTDLP_PATH = cmd
-                    return YTDLP_PATH
-            else:
-                found = shutil.which(cmd)
-                if found:
-                    YTDLP_PATH = found
-                    return YTDLP_PATH
+
+        # 1. Prefer pip-installed yt-dlp (has curl_cffi for TikTok impersonation)
+        for p in ['/usr/local/bin/yt-dlp', '/usr/bin/yt-dlp', str(Path.home() / '.local/bin/yt-dlp')]:
+            if os.path.isfile(p):
+                YTDLP_PATH = p
+                return YTDLP_PATH
+
+        # 2. Check what 'which' finds (may be standalone in BASE_DIR)
+        which = shutil.which('yt-dlp')
+        if which:
+            YTDLP_PATH = which
+            return YTDLP_PATH
+
+        # 3. Standalone binary in project dir (last resort, no impersonation)
+        standalone = str(BASE_DIR / 'yt-dlp')
+        if os.path.isfile(standalone):
+            YTDLP_PATH = standalone
+            return YTDLP_PATH
     return None
 
 def install_ytdlp():
@@ -157,6 +166,10 @@ def get_video_info(url):
     if not cmd: return None
     cookies = get_cookies_path()
     extra = ['--cookies', cookies] if cookies else []
+    
+    if 'tiktok.com' in url:
+        extra.extend(['--extractor-args', 'tiktok:api_host=web', '--impersonate'])
+
     url_channel = extract_channel_from_url(url)
     try:
         r = subprocess.run(
@@ -260,7 +273,7 @@ def download_single(video_url, title, quality_key, output_dir, platform='youtube
                 '--retries', '10', '--fragment-retries', '10',
                 '--download-archive', str(archive_path)] + sleep_args + cookie_args
     if platform == 'tiktok':
-        args.extend(['--extractor-args', 'tiktok:api_host=web'])
+        args.extend(['--extractor-args', 'tiktok:api_host=web', '--impersonate'])
     args.append(video_url)
 
     max_retries = 4
